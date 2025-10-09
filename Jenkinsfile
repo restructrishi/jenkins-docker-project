@@ -1,27 +1,26 @@
 pipeline {
-    agent any // This pipeline can run on any available Jenkins agent
+    agent any
 
     environment {
-        // Define a variable for your Docker Hub username
-        // We will configure credentials in Jenkins to keep them secret
-        DOCKERHUB_CREDENTIALS = credentials('rishingm') 
+        // Docker Hub credentials (stored in Jenkins Credentials)
+        DOCKERHUB_CREDENTIALS = credentials('rishingm')
         DOCKER_IMAGE_NAME = "rishingm/jenkins-docker-project"
     }
 
     stages {
+
         stage('Checkout Code') {
             steps {
-                // Get the latest code from the 'main' branch of your GitHub repository
-                git branch: 'main', url: '[https://github.com/restructrishi/jenkins-docker-project.git](https://github.com/restructrishi/jenkins-docker-project.git)'
+                echo "Cloning repository from GitHub..."
+                git branch: 'main', url: 'https://github.com/restructrishi/jenkins-docker-project.git'
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    // Build the Docker image using the Dockerfile in our code
                     echo "Building the Docker image..."
-                    docker.build(DOCKER_IMAGE_NAME, '.')
+                    docker.build("${DOCKER_IMAGE_NAME}", '.')
                 }
             }
         }
@@ -29,10 +28,9 @@ pipeline {
         stage('Push to Docker Hub') {
             steps {
                 script {
-                    // Log in to Docker Hub using the stored credentials and push the image
-                    echo "Pushing the Docker image to Docker Hub..."
-                    docker.withRegistry('[https://registry.hub.docker.com](https://registry.hub.docker.com)', DOCKERHUB_CREDENTIALS) {
-                        docker.image(DOCKER_IMAGE_NAME).push("latest")
+                    echo "Logging in and pushing the Docker image to Docker Hub..."
+                    docker.withRegistry('https://index.docker.io/v1/', DOCKERHUB_CREDENTIALS) {
+                        docker.image("${DOCKER_IMAGE_NAME}").push("latest")
                     }
                 }
             }
@@ -42,11 +40,10 @@ pipeline {
             steps {
                 script {
                     echo "Deploying the application..."
-                    // Stop and remove any old container with the same name to avoid conflicts
+                    // Stop and remove old container if exists
                     sh 'docker stop my-web-app || true'
                     sh 'docker rm my-web-app || true'
-                    
-                    // Run a new container from the latest image we just pushed
+                    // Run new container
                     sh "docker run -d --name my-web-app -p 3000:3000 ${DOCKER_IMAGE_NAME}:latest"
                 }
             }
