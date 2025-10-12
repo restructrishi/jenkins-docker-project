@@ -32,8 +32,8 @@ pipeline {
                         usernameVariable: 'DOCKER_USER',
                         passwordVariable: 'DOCKER_PASS'
                     )]) {
-                        sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
-                        sh "docker push ${DOCKER_IMAGE_NAME}:latest"
+                        bat 'docker login -u %DOCKER_USER% -p %DOCKER_PASS%'
+                        bat "docker push ${DOCKER_IMAGE_NAME}:latest"
                     }
                 }
             }
@@ -43,9 +43,9 @@ pipeline {
             steps {
                 script {
                     echo "Deploying the application..."
-                    sh 'docker stop my-web-app || true'
-                    sh 'docker rm my-web-app || true'
-                    sh "docker run -d --name my-web-app -p 3000:3000 ${DOCKER_IMAGE_NAME}:latest"
+                    bat 'docker stop my-web-app || exit 0'
+                    bat 'docker rm my-web-app || exit 0'
+                    bat "docker run -d --name my-web-app -p 3000:3000 ${DOCKER_IMAGE_NAME}:latest"
                 }
             }
         }
