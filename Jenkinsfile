@@ -3,7 +3,6 @@ pipeline {
 
     environment {
         DOCKER_IMAGE_NAME = "rishingm/jenkins-docker-project"
-        // Remove the credentials() binding from environment
     }
 
     stages {
@@ -28,9 +27,13 @@ pipeline {
             steps {
                 script {
                     echo "Logging in and pushing the Docker image to Docker Hub..."
-                    // Pass the credential ID as a string directly
-                    docker.withRegistry('', 'rishingm') {
-                        docker.image("${DOCKER_IMAGE_NAME}").push("latest")
+                    withCredentials([usernamePassword(
+                        credentialsId: 'rishingm',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                        sh "docker push ${DOCKER_IMAGE_NAME}:latest"
                     }
                 }
             }
@@ -40,10 +43,8 @@ pipeline {
             steps {
                 script {
                     echo "Deploying the application..."
-                    // Stop and remove old container if exists
                     sh 'docker stop my-web-app || true'
                     sh 'docker rm my-web-app || true'
-                    // Run new container
                     sh "docker run -d --name my-web-app -p 3000:3000 ${DOCKER_IMAGE_NAME}:latest"
                 }
             }
