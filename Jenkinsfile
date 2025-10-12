@@ -2,9 +2,8 @@ pipeline {
     agent any
 
     environment {
-        // Docker Hub credentials (stored in Jenkins Credentials)
-        DOCKERHUB_CREDENTIALS = credentials('rishingm')
         DOCKER_IMAGE_NAME = "rishingm/jenkins-docker-project"
+        // Remove the credentials() binding from environment
     }
 
     stages {
@@ -29,7 +28,8 @@ pipeline {
             steps {
                 script {
                     echo "Logging in and pushing the Docker image to Docker Hub..."
-                    docker.withRegistry('https://index.docker.io/v1/', DOCKERHUB_CREDENTIALS) {
+                    // Pass the credential ID as a string directly
+                    docker.withRegistry('', 'rishingm') {
                         docker.image("${DOCKER_IMAGE_NAME}").push("latest")
                     }
                 }
