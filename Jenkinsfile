@@ -6,8 +6,8 @@ pipeline {
     }
 
     environment {
-        SONARQUBE_SERVER = 'SonarQubeServer' 
-        DOCKERHUB_USERNAME = 'your-dockerhub-username' //
+        SONARQUBE_SERVER = 'Sonarqube' 
+        DOCKERHUB_USERNAME = 'rishingm' 
         IMAGE_NAME = "${DOCKERHUB_USERNAME}/my-java-app"
     }
 
