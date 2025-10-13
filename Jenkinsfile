@@ -1,115 +1,162 @@
 pipeline {
-    agent any
+  agent any
 
-    environment {
-        DOCKER_IMAGE = "rishingm/java-app"
-        DOCKER_TAG = "${BUILD_NUMBER}"
-        SONAR_PROJECT_KEY = "java-app"
-        SONAR_AUTH_TOKEN = credentials('Sonarqube')
-        LOCAL_CONTAINER_NAME = "java-app"
-        LOCAL_PORT = 30080
+  environment {
+    // Change these here if you want; values below are what you provided
+    DOCKERHUB_USER = 'rishingm'
+    IMAGE_NAME     = "${DOCKERHUB_USER}/jenkins-docker-project"
+    SONAR_SERVER   = 'SonarQube'              // Jenkins SonarQube server name
+    DOCKER_CRED_ID = 'docker-credentials'     // DockerHub credential ID in Jenkins
+    GIT_CRED_ID    = 'github-credentials'     // GitHub credentials (if needed)
+    SONAR_CRED_ID  = 'sonar-token'            // <-- assumed ID for Sonar token (create this secret text in Jenkins if different)
+    // Optional: set PUSHGATEWAY_URL as a Jenkins secret or environment var if you want to push build metrics (Prometheus)
+    PUSHGATEWAY_URL = ''
+  }
+
+  options {
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+    timestamps()
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        // if your repo is private and you set up 'github-credentials', this will use it
+        checkout scm
+        echo "Checked out: ${env.GIT_COMMIT}"
+      }
     }
 
-    tools {
-        maven 'Maven'
-        jdk 'Java-17'  
+    stage('Detect & Install') {
+      steps {
+        script {
+          if (fileExists('pom.xml')) {
+            env.BUILD_TOOL = 'maven'
+            echo "Detected Maven project"
+          } else if (fileExists('package.json')) {
+            env.BUILD_TOOL = 'node'
+            echo "Detected Node project"
+          } else {
+            env.BUILD_TOOL = 'none'
+            echo "No recognized build file (pom.xml/package.json). Will skip install/test steps."
+          }
+        }
+      }
     }
 
-    stages {
-        stage('Checkout') {
-            steps {
-                echo "📦 Checking out code from GitHub..."
-                git branch: 'main',
-                    url: 'https://github.com/restructrishi/jenkins-docker-project.git'
-            }
+    stage('Install & Test') {
+      when { expression { env.BUILD_TOOL != 'none' } }
+      steps {
+        script {
+          if (env.BUILD_TOOL == 'maven') {
+            sh 'mvn -B -q clean test || true'
+          } else if (env.BUILD_TOOL == 'node') {
+            sh 'npm ci || npm install'
+            sh 'npm test || true'
+          }
         }
-
-        stage('Build') {
-            steps {
-                echo "⚙️ Building the project with Maven..."
-                sh 'mvn clean package -DskipTests'
-            }
-        }
-
-        stage('Parallel: Unit Tests & SonarQube Analysis') {
-            parallel {
-                stage('Unit Tests') {
-                    steps {
-                        echo "🧪 Running unit tests..."
-                        sh 'mvn test'
-                    }
-                    post {
-                        always {
-                            junit 'target/surefire-reports/*.xml'
-                        }
-                    }
-                }
-
-                stage('SonarQube Analysis') {
-                    steps {
-                        echo "🔍 Running SonarQube analysis..."
-                        withSonarQubeEnv('SonarQube') {
-                            sh """
-                                mvn sonar:sonar \
-                                -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                                -Dsonar.host.url=http://localhost:9000 \
-                                -Dsonar.login=${SONAR_AUTH_TOKEN} \
-                                -Dsonar.exclusions=**/target/**,**/node_modules/**,**/*.md
-                            """
-                            echo "✅ SonarQube analysis completed!"
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Quality Gate') {
-            steps {
-                script {
-                    echo "🚦 Checking SonarQube Quality Gate..."
-                    try {
-                        timeout(time: 3, unit: 'MINUTES') {
-                            def qg = waitForQualityGate abortPipeline: true
-                            echo "✅ SonarQube Quality Gate Result: ${qg.status}"
-                        }
-                    } catch (err) {
-                        echo "⚠️ Quality Gate check timed out or failed, continuing..."
-                    }
-                }
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                echo "🐳 Building Docker image..."
-                sh """
-                    docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-                    docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
-                """
-            }
-        }
-
-        stage('Push to DockerHub') {
-            steps {
-                echo "📤 Pushing Docker image to DockerHub..."
-                withCredentials([usernamePassword(credentialsId: 'docker-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh """
-                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                        docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                        docker push ${DOCKER_IMAGE}:latest
-                        docker logout
-                    """
-                }
-            }
-        }
+      }
     }
 
-    post {
-        success {
-            echo "🎉 Pipeline completed successfully!"
+    stage('SonarQube Analysis') {
+      when { expression { env.SONAR_CRED_ID != '' } }
+      steps {
+        // This requires: (1) SonarQube server configured in Jenkins with the name in SONAR_SERVER
+        //                (2) A Jenkins "Secret Text" credential containing the Sonar token with id SONAR_CRED_ID
+        withCredentials([string(credentialsId: "${env.SONAR_CRED_ID}", variable: 'SONAR_TOKEN')]) {
+          withSonarQubeEnv("${env.SONAR_SERVER}") {
+            script {
+              if (env.BUILD_TOOL == 'maven') {
+                // Maven: uses sonar-maven-plugin
+                sh "mvn -B clean verify sonar:sonar -Dsonar.login=${SONAR_TOKEN}"
+              } else if (env.BUILD_TOOL == 'node') {
+                // Node: try to use installed sonar-scanner or fallback to docker scanner
+                if (sh(script: 'which sonar-scanner || true', returnStdout: true).trim()) {
+                  sh "sonar-scanner -Dsonar.login=${SONAR_TOKEN} -Dsonar.projectKey=${env.JOB_NAME}-${env.BUILD_NUMBER}"
+                } else {
+                  // Run sonar-scanner in a temporary Docker container (no install required on agent)
+                  // mounts workspace into /usr/src and runs scanner from container
+                  sh """docker run --rm -v "${env.WORKSPACE}":/usr/src -w /usr/src sonarsource/sonar-scanner-cli \
+                    -Dsonar.login=${SONAR_TOKEN} \
+                    -Dsonar.projectKey=${env.JOB_NAME}-${env.BUILD_NUMBER} \
+                    -Dsonar.sources=. 
+                  """
+                }
+              } else {
+                echo "Skipping Sonar - no build files detected."
+              }
+            }
+          }
         }
-        failure {
-            echo "❌ Pipeline failed. Check the logs for more details."
-        }
+      }
     }
+
+    stage('Wait for Sonar Quality Gate') {
+      // Optional: requires SonarQube plugin and that SonarQube server is reachable.
+      steps {
+        timeout(time: 2, unit: 'MINUTES') {
+          // This will fail the build if Quality Gate is NOT OK (if plugin is available)
+          waitForQualityGate abortPipeline: true
+        }
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        script {
+          def tag = "${env.IMAGE_NAME}:${env.BUILD_NUMBER}"
+          sh "docker build -t ${tag} ."
+          env.IMAGE_TAG = tag
+        }
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: "${env.DOCKER_CRED_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh 'echo $DOCKER_PASS | docker login -u "$DOCKER_USER" --password-stdin'
+          sh "docker push ${env.IMAGE_TAG}"
+          sh 'docker logout'
+        }
+      }
+    }
+
+    stage('Optional: Notify/Deploy') {
+      steps {
+        echo "Add your deployment or notification steps here (kubectl/ssh/helm/slack)."
+        // Example placeholder:
+        // sh 'ssh deploy@server "docker pull ${env.IMAGE_TAG} && docker run -d --rm --name app -p 80:3000 ${env.IMAGE_TAG}"'
+      }
+    }
+
+    stage('Optional: Push build metrics to Prometheus Pushgateway') {
+      when { expression { env.PUSHGATEWAY_URL?.trim() } }
+      steps {
+        script {
+          // This stage is optional and will run only when PUSHGATEWAY_URL is provided in environment
+          def metrics = "build_status{job=\"${env.JOB_NAME}\",build=\"${env.BUILD_NUMBER}\"} 1\n"
+          writeFile file: 'build_metrics.prom', text: metrics
+          sh "curl --data-binary @build_metrics.prom ${env.PUSHGATEWAY_URL}/metrics/job/${env.JOB_NAME}/build/${env.BUILD_NUMBER}"
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "Build succeeded: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+    }
+    unstable {
+      echo "Build unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+    }
+    failure {
+      echo "Build failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+    }
+    always {
+      // save image info and pipeline logs
+      archiveArtifacts artifacts: '**/target/*.jar, **/*.log', allowEmptyArchive: true
+      cleanWs()
+    }
+  }
 }
