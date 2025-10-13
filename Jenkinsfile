@@ -46,18 +46,19 @@ pipeline {
     }
 
     stage('Install & Test') {
-      when { expression { env.BUILD_TOOL != 'none' } }
-      steps {
-        script {
-          if (env.BUILD_TOOL == 'maven') {
-            sh 'mvn -B -q clean test || true'
-          } else if (env.BUILD_TOOL == 'node') {
-            sh 'npm ci || npm install'
-            sh 'npm test || true'
-          }
-        }
-      }
+  when { expression { env.BUILD_TOOL == 'node' } }
+  agent {
+    docker {
+      image 'node:18'   // you can also use node:20 if you want the latest
+      args '-v /var/run/docker.sock:/var/run/docker.sock'
     }
+  }
+  steps {
+    sh 'npm ci || npm install'
+    sh 'npm test || true'
+  }
+}
+
 
     stage('SonarQube Analysis') {
       when { expression { env.SONAR_CRED_ID != '' } }
