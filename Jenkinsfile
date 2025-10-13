@@ -1,69 +1,86 @@
 pipeline {
     agent any
-    
-    environment {
-        DOCKER_IMAGE = "rishingm/jenkins-docker-project"
-        DOCKER_TAG = "latest"
+
+    tools {
+        maven 'Maven'
     }
-    
+
+    environment {
+        SONARQUBE_SERVER = 'SonarQubeServer' 
+        DOCKERHUB_USERNAME = 'your-dockerhub-username' //
+        IMAGE_NAME = "${DOCKERHUB_USERNAME}/my-java-app"
+    }
+
     stages {
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
-                echo 'Checking out code...'
-                checkout scm
+                git url: 'https://github.com/your-github-username/my-java-app.git', branch: 'main'
             }
         }
-        
-        stage('Build Docker Image') {
+
+        stage('Code Analysis') {
             steps {
-                echo 'Building Docker image...'
-                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
-            }
-        }
-        
-        stage('Test Docker Image') {
-            steps {
-                echo 'Testing Docker image...'
-                sh "docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} node --version"
-                sh "docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} npm --version"
-            }
-        }
-        
-        stage('Push to Docker Hub') {
-            steps {
-                echo 'Pushing to Docker Hub...'
-                withCredentials([usernamePassword(
-                    credentialsId: 'docker-credentials',
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
-                    sh '''
-                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                        docker push "${DOCKER_IMAGE}:${DOCKER_TAG}"
-                        docker logout
-                    '''
+                withSonarQubeEnv(SONARQUBE_SERVER) {
+                    sh 'mvn clean verify sonar:sonar'
                 }
             }
         }
         
-        stage('Cleanup') {
+        stage("Quality Gate") {
             steps {
-                echo 'Cleaning up...'
-                sh "docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true"
+                timeout(time: 1, unit: 'HOURS') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t ${IMAGE_NAME}:${env.BUILD_NUMBER} ."
+                sh "docker tag ${IMAGE_NAME}:${env.BUILD_NUMBER} ${IMAGE_NAME}:latest"
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([string(credentialsId: 'dockerhub-credentials-id', variable: 'DOCKERHUB_PASS')]) {
+                    sh "echo ${DOCKERHUB_PASS} | docker login -u ${DOCKERHUB_USERNAME} --password-stdin"
+                    sh "docker push ${IMAGE_NAME}:${env.BUILD_NUMBER}"
+                    sh "docker push ${IMAGE_NAME}:latest"
+                }
             }
         }
     }
     
     post {
+        // This block sends notifications based on the final build status.
+        always {
+            // Clean up workspace and Docker images regardless of the outcome.
+            sh "docker rmi ${IMAGE_NAME}:${env.BUILD_NUMBER}"
+            sh "docker rmi ${IMAGE_NAME}:latest"
+            cleanWs()
+        }
         success {
-            echo 'Pipeline completed successfully!'
+            // This runs only if the build is successful.
+            script {
+                slackSend(
+                    channel: '#build-alerts', // Or your channel name
+                    color: 'good', // Green color
+                    message: "SUCCESS: Job '${env.JOB_NAME}' build #${env.BUILD_NUMBER} completed successfully. Details: ${env.BUILD_URL}",
+                    credentialId: 'slack-webhook-url' // The ID of your credential
+                )
+            }
         }
         failure {
-            echo 'Pipeline failed!'
-        }
-        always {
-            echo 'Cleaning up workspace...'
-            cleanWs()
+            // This runs only if the build fails.
+            script {
+                slackSend(
+                    channel: '#build-alerts',
+                    color: 'danger', // Red color
+                    message: "FAILURE: Job '${env.JOB_NAME}' build #${env.BUILD_NUMBER} failed. Check console output: ${env.BUILD_URL}",
+                    credentialId: 'slack-webhook-url'
+                )
+            }
         }
     }
 }
