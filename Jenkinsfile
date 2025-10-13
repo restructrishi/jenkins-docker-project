@@ -45,21 +45,33 @@ pipeline {
       }
     }
 
-stage('Install & Test') {
-  when { expression { env.BUILD_TOOL == 'node' } }
-  agent {
-    docker {
-      image 'node:18'
-      reuseNode true  // <-- Add this!
-      args '-v /var/run/docker.sock:/var/run/docker.sock'
+    stage('Debug Docker') {
+      steps {
+        sh 'docker --version'
+        sh 'docker images | head -5'
+        sh 'docker run --rm node:18 node --version'
+      }
     }
-  }
-  steps {
-    sh 'npm ci || npm install'
-    sh 'npm test || true'
-  }
-}
 
+    stage('Install & Test') {
+      when { expression { env.BUILD_TOOL == 'node' } }
+      steps {
+        script {
+          docker.image('node:18').inside() {
+            sh '''
+              echo "Node version:"
+              node --version
+              echo "NPM version:"
+              npm --version
+              echo "Installing dependencies..."
+              npm ci || npm install
+              echo "Running tests..."
+              npm test || true
+            '''
+          }
+        }
+      }
+    }
 
     stage('SonarQube Analysis') {
       when { expression { env.SONAR_CRED_ID != '' } }
