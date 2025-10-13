@@ -2,6 +2,8 @@ pipeline {
     agent any
 
     environment {
+        // Docker Hub credentials (stored in Jenkins Credentials)
+        DOCKERHUB_CREDENTIALS = credentials('rishingm')
         DOCKER_IMAGE_NAME = "rishingm/jenkins-docker-project"
     }
 
@@ -27,13 +29,10 @@ pipeline {
             steps {
                 script {
                     echo "Logging in and pushing the Docker image to Docker Hub..."
-                    withCredentials([usernamePassword(
-                        credentialsId: 'rishingm',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-                        bat 'docker login -u %DOCKER_USER% -p %DOCKER_PASS%'
-                        bat "docker push ${DOCKER_IMAGE_NAME}:latest"
+                    // NOTICE: We removed the specific URL. An empty string '' defaults to Docker Hub.
+                    // This is the most reliable way.
+                    docker.withRegistry('', DOCKERHUB_CREDENTIALS) {
+                        docker.image("${DOCKER_IMAGE_NAME}").push("latest")
                     }
                 }
             }
@@ -43,9 +42,11 @@ pipeline {
             steps {
                 script {
                     echo "Deploying the application..."
-                    bat 'docker stop my-web-app || exit 0'
-                    bat 'docker rm my-web-app || exit 0'
-                    bat "docker run -d --name my-web-app -p 3000:3000 ${DOCKER_IMAGE_NAME}:latest"
+                    // Stop and remove old container if exists
+                    sh 'docker stop my-web-app || true'
+                    sh 'docker rm my-web-app || true'
+                    // Run new container
+                    sh "docker run -d --name my-web-app -p 3000:3000 ${DOCKER_IMAGE_NAME}:latest"
                 }
             }
         }
