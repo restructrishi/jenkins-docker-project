@@ -45,11 +45,12 @@ pipeline {
       }
     }
 
-    stage('Install & Test') {
+stage('Install & Test') {
   when { expression { env.BUILD_TOOL == 'node' } }
   agent {
     docker {
-      image 'node:18'   // you can also use node:20 if you want the latest
+      image 'node:18'
+      reuseNode true  // <-- Add this!
       args '-v /var/run/docker.sock:/var/run/docker.sock'
     }
   }
