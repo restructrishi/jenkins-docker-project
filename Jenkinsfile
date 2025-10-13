@@ -56,20 +56,14 @@ pipeline {
     stage('Install & Test') {
       when { expression { env.BUILD_TOOL == 'node' } }
       steps {
-        script {
-          docker.image('node:18').inside() {
-            sh '''
-              echo "Node version:"
-              node --version
-              echo "NPM version:"
-              npm --version
-              echo "Installing dependencies..."
-              npm ci || npm install
-              echo "Running tests..."
-              npm test || true
-            '''
-          }
-        }
+        sh '''
+          echo "Running npm install in Docker container..."
+          docker run --rm \
+            -v "${WORKSPACE}":/app \
+            -w /app \
+            node:18 \
+            sh -c "node --version && npm --version && (npm ci || npm install) && (npm test || true)"
+        '''
       }
     }
 
