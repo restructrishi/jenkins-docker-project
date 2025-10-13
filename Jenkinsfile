@@ -53,13 +53,12 @@ pipeline {
     }
     
     post {
-        // This block sends notifications based on the final build status.
-        always {
-            // Clean up workspace and Docker images regardless of the outcome.
-            sh "docker rmi ${IMAGE_NAME}:${env.BUILD_NUMBER}"
-            sh "docker rmi ${IMAGE_NAME}:latest"
-            cleanWs()
-        }
+    always {
+        // The "|| true" ensures this step doesn't fail if the image doesn't exist
+        sh "docker rmi ${IMAGE_NAME}:${env.BUILD_NUMBER} || true"
+        sh "docker rmi ${IMAGE_NAME}:latest || true"
+        cleanWs()
+    }
         success {
             // This runs only if the build is successful.
             script {
