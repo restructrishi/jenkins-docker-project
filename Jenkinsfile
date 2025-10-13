@@ -14,7 +14,7 @@ pipeline {
     stages {
         stage('Checkout Code') {
             steps {
-                git url: 'https://github.com/your-github-username/my-java-app.git', branch: 'main'
+                git url: 'https://github.com/restructrishi/jenkins-docker-project.git', branch: 'main'
             }
         }
 
