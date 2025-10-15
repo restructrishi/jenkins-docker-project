@@ -9,7 +9,7 @@ pipeline {
     DOCKER_CRED_ID = 'docker-credentials'     // DockerHub credential ID in Jenkins
     GIT_CRED_ID    = 'github-credentials'     // GitHub credentials (if needed)
     SONAR_CRED_ID  = 'sonar-token'            // <-- SonarQube token credential ID in Jenkins
-    SONAR_HOST_URL = 'http://http://172.25.193.219:9000/'  // <-- Your SonarQube server URL
+    SONAR_HOST_URL = 'http://localhost:9000'  // <-- Your SonarQube server URL
     // Optional: set PUSHGATEWAY_URL as a Jenkins secret or environment var if you want to push build metrics (Prometheus)
     PUSHGATEWAY_URL = ''
   }
