@@ -2,15 +2,13 @@ pipeline {
   agent any
 
   environment {
-    // Change these here if you want; values below are what you provided
     DOCKERHUB_USER = 'rishingm'
     IMAGE_NAME     = "${DOCKERHUB_USER}/jenkins-docker-project"
-    SONAR_SERVER   = 'SonarQube'              // Jenkins SonarQube server name
-    DOCKER_CRED_ID = 'docker-credentials'     // DockerHub credential ID in Jenkins
-    GIT_CRED_ID    = 'github-credentials'     // GitHub credentials (if needed)
-    SONAR_CRED_ID  = 'sonar-token'            // <-- SonarQube token credential ID in Jenkins
-    SONAR_HOST_URL = 'http://172.25.193.219:9000/'  // <-- Your SonarQube server URL
-    // Optional: set PUSHGATEWAY_URL as a Jenkins secret or environment var if you want to push build metrics (Prometheus)
+    SONAR_SERVER   = 'SonarQube'
+    DOCKER_CRED_ID = 'docker-credentials'
+    GIT_CRED_ID    = 'github-credentials'
+    SONAR_CRED_ID  = 'sonar-token'
+    SONAR_HOST_URL = 'http://host.docker.internal:9000'   // ✅ Changed: ensure host-docker-internal is used
     PUSHGATEWAY_URL = ''
   }
 
@@ -23,7 +21,6 @@ pipeline {
 
     stage('Checkout') {
       steps {
-        // if your repo is private and you set up 'github-credentials', this will use it
         checkout scm
         echo "Checked out: ${env.GIT_COMMIT}"
       }
@@ -69,39 +66,26 @@ pipeline {
     }
 
     stage('SonarQube Analysis') {
-      when { 
-        expression { 
-          env.SONAR_CRED_ID != null && env.SONAR_CRED_ID != '' 
-        } 
-      }
+      when { expression { env.SONAR_CRED_ID?.trim() } }
       steps {
-        // This requires: (1) SonarQube server configured in Jenkins with the name in SONAR_SERVER
-        //                (2) A Jenkins "Secret Text" credential containing the Sonar token with id SONAR_CRED_ID
         withCredentials([string(credentialsId: "${env.SONAR_CRED_ID}", variable: 'SONAR_TOKEN')]) {
           withSonarQubeEnv("${env.SONAR_SERVER}") {
             script {
               if (env.BUILD_TOOL == 'maven') {
-                // Maven: uses sonar-maven-plugin
                 sh "mvn -B clean verify sonar:sonar -Dsonar.login=${SONAR_TOKEN}"
               } else if (env.BUILD_TOOL == 'node') {
-                // Node: try to use installed sonar-scanner or fallback to docker scanner
-                if (sh(script: 'which sonar-scanner || true', returnStdout: true).trim()) {
-                  sh "sonar-scanner -Dsonar.login=${SONAR_TOKEN} -Dsonar.projectKey=${env.JOB_NAME}-${env.BUILD_NUMBER}"
-                } else {
-                  // Run sonar-scanner in a temporary Docker container (no install required on agent)
-                  // mounts workspace into /usr/src and runs scanner from container
-                  def sonarHostUrl = env.SONAR_HOST_URL ?: 'http://host.docker.internal:9000'
-                  sh """docker run --rm \
+                // ✅ Secure + Corrected Docker Sonar Scanner command
+                sh '''
+                  docker run --rm \
                     --add-host=host.docker.internal:host-gateway \
-                    -v '${env.WORKSPACE}':/usr/src \
+                    -v "${WORKSPACE}":/usr/src \
                     -w /usr/src \
-                    -e SONAR_TOKEN='${SONAR_TOKEN}' \
+                    -e SONAR_TOKEN=$SONAR_TOKEN \
                     sonarsource/sonar-scanner-cli \
-                    -Dsonar.host.url=${sonarHostUrl} \
-                    -Dsonar.projectKey=${env.JOB_NAME}-${env.BUILD_NUMBER} \
-                    -Dsonar.sources=. 
-                  """
-                }
+                    -Dsonar.host.url=http://host.docker.internal:9000 \
+                    -Dsonar.projectKey=${JOB_NAME}-${BUILD_NUMBER} \
+                    -Dsonar.sources=.
+                '''
               } else {
                 echo "Skipping Sonar - no build files detected."
               }
@@ -112,10 +96,8 @@ pipeline {
     }
 
     stage('Wait for Sonar Quality Gate') {
-      // Optional: requires SonarQube plugin and that SonarQube server is reachable.
       steps {
         timeout(time: 2, unit: 'MINUTES') {
-          // This will fail the build if Quality Gate is NOT OK (if plugin is available)
           waitForQualityGate abortPipeline: true
         }
       }
@@ -144,8 +126,6 @@ pipeline {
     stage('Optional: Notify/Deploy') {
       steps {
         echo "Add your deployment or notification steps here (kubectl/ssh/helm/slack)."
-        // Example placeholder:
-        // sh 'ssh deploy@server "docker pull ${env.IMAGE_TAG} && docker run -d --rm --name app -p 80:3000 ${env.IMAGE_TAG}"'
       }
     }
 
@@ -153,7 +133,6 @@ pipeline {
       when { expression { env.PUSHGATEWAY_URL?.trim() } }
       steps {
         script {
-          // This stage is optional and will run only when PUSHGATEWAY_URL is provided in environment
           def metrics = "build_status{job=\"${env.JOB_NAME}\",build=\"${env.BUILD_NUMBER}\"} 1\n"
           writeFile file: 'build_metrics.prom', text: metrics
           sh "curl --data-binary @build_metrics.prom ${env.PUSHGATEWAY_URL}/metrics/job/${env.JOB_NAME}/build/${env.BUILD_NUMBER}"
@@ -164,16 +143,15 @@ pipeline {
 
   post {
     success {
-      echo "Build succeeded: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+      echo "✅ Build succeeded: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
     }
     unstable {
-      echo "Build unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+      echo "⚠️ Build unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
     }
     failure {
-      echo "Build failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+      echo "❌ Build failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
     }
     always {
-      // save image info and pipeline logs
       archiveArtifacts artifacts: '**/target/*.jar, **/*.log', allowEmptyArchive: true
       cleanWs()
     }
