@@ -6,10 +6,10 @@ pipeline {
     DOCKERHUB_USER = 'rishingm'
     IMAGE_NAME     = "${DOCKERHUB_USER}/jenkins-docker-project"
     SONAR_SERVER   = 'SonarQube'              // Jenkins SonarQube server name
-    DOCKER_CRED_ID = 'docker-credentials'     // DockerHub credential ID in Jenkins
-    GIT_CRED_ID    = 'github-credentials'     // GitHub credentials (if needed)
-    SONAR_CRED_ID  = 'sonar-token'            // <-- SonarQube token credential ID in Jenkins
-    SONAR_HOST_URL = 'http://localhost:9000'  // <-- Your SonarQube server URL
+    DOCKER_CRED_ID = 'docker-credentials'      // DockerHub credential ID in Jenkins
+    GIT_CRED_ID    = 'github-credentials'      // GitHub credentials (if needed)
+    SONAR_CRED_ID  = 'sonar-token'             // <-- SonarQube token credential ID in Jenkins
+    SONAR_HOST_URL = 'http://localhost:9000'   // <-- Your SonarQube server URL
     // Optional: set PUSHGATEWAY_URL as a Jenkins secret or environment var if you want to push build metrics (Prometheus)
     PUSHGATEWAY_URL = ''
   }
@@ -68,15 +68,16 @@ pipeline {
       }
     }
 
-    stage('SonarQube Analysis') {
+    // --- MODIFIED STAGE ---
+    // The analysis and quality gate steps are now combined here.
+    stage('SonarQube Analysis & Quality Gate') {
       when { 
         expression { 
           env.SONAR_CRED_ID != null && env.SONAR_CRED_ID != '' 
         } 
       }
       steps {
-        // This requires: (1) SonarQube server configured in Jenkins with the name in SONAR_SERVER
-        //                (2) A Jenkins "Secret Text" credential containing the Sonar token with id SONAR_CRED_ID
+        // This first block runs the scanner, establishing the context.
         withCredentials([string(credentialsId: "${env.SONAR_CRED_ID}", variable: 'SONAR_TOKEN')]) {
           withSonarQubeEnv("${env.SONAR_SERVER}") {
             script {
@@ -89,7 +90,6 @@ pipeline {
                   sh "sonar-scanner -Dsonar.login=${SONAR_TOKEN} -Dsonar.projectKey=${env.JOB_NAME}-${env.BUILD_NUMBER}"
                 } else {
                   // Run sonar-scanner in a temporary Docker container (no install required on agent)
-                  // mounts workspace into /usr/src and runs scanner from container
                   def sonarHostUrl = env.SONAR_HOST_URL ?: 'http://host.docker.internal:9000'
                   sh '''
 docker run --rm --add-host=host.docker.internal:host-gateway \
@@ -101,7 +101,6 @@ docker run --rm --add-host=host.docker.internal:host-gateway \
   -Dsonar.projectKey=sonarqube-pipeline-${BUILD_NUMBER} \
   -Dsonar.sources=.
 '''
-
                 }
               } else {
                 echo "Skipping Sonar - no build files detected."
@@ -109,14 +108,10 @@ docker run --rm --add-host=host.docker.internal:host-gateway \
             }
           }
         }
-      }
-    }
 
-    stage('Wait for Sonar Quality Gate') {
-      // Optional: requires SonarQube plugin and that SonarQube server is reachable.
-      steps {
+        // This second block now runs immediately after, within the same stage.
+        // It automatically picks up the context from the analysis above.
         timeout(time: 2, unit: 'MINUTES') {
-          // This will fail the build if Quality Gate is NOT OK (if plugin is available)
           waitForQualityGate abortPipeline: true
         }
       }
