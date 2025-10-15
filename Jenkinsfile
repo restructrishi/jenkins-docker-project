@@ -8,7 +8,7 @@ pipeline {
     SONAR_SERVER   = 'SonarQube'              // Jenkins SonarQube server name
     DOCKER_CRED_ID = 'docker-credentials'     // DockerHub credential ID in Jenkins
     GIT_CRED_ID    = 'github-credentials'     // GitHub credentials (if needed)
-    SONAR_CRED_ID  = 'Sonarqube'            // <-- assumed ID for Sonar token (create this secret text in Jenkins if different)
+    SONAR_CRED_ID  = 'Sonaeqube'                       // <-- Set to empty to skip SonarQube (or use 'sonar-token' after creating credentials)
     // Optional: set PUSHGATEWAY_URL as a Jenkins secret or environment var if you want to push build metrics (Prometheus)
     PUSHGATEWAY_URL = ''
   }
@@ -85,8 +85,14 @@ pipeline {
                 } else {
                   // Run sonar-scanner in a temporary Docker container (no install required on agent)
                   // mounts workspace into /usr/src and runs scanner from container
-                  sh """docker run --rm -v "${env.WORKSPACE}":/usr/src -w /usr/src sonarsource/sonar-scanner-cli \
-                    -Dsonar.login=${SONAR_TOKEN} \
+                  def sonarHostUrl = env.SONAR_HOST_URL ?: 'http://host.docker.internal:9000'
+                  sh """docker run --rm \
+                    --add-host=host.docker.internal:host-gateway \
+                    -v '${env.WORKSPACE}':/usr/src \
+                    -w /usr/src \
+                    -e SONAR_TOKEN='${SONAR_TOKEN}' \
+                    sonarsource/sonar-scanner-cli \
+                    -Dsonar.host.url=${sonarHostUrl} \
                     -Dsonar.projectKey=${env.JOB_NAME}-${env.BUILD_NUMBER} \
                     -Dsonar.sources=. 
                   """
