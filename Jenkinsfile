@@ -23,7 +23,6 @@ pipeline {
 
     stage('Checkout') {
       steps {
-        // if your repo is private and you set up 'github-credentials', this will use it
         checkout scm
         echo "Checked out: ${env.GIT_COMMIT}"
       }
@@ -68,8 +67,6 @@ pipeline {
       }
     }
 
-    // --- MODIFIED STAGE ---
-    // The analysis and quality gate steps are now combined here.
     stage('SonarQube Analysis & Quality Gate') {
       when { 
         expression { 
@@ -77,31 +74,23 @@ pipeline {
         } 
       }
       steps {
-        // This first block runs the scanner, establishing the context.
         withCredentials([string(credentialsId: "${env.SONAR_CRED_ID}", variable: 'SONAR_TOKEN')]) {
           withSonarQubeEnv("${env.SONAR_SERVER}") {
             script {
               if (env.BUILD_TOOL == 'maven') {
-                // Maven: uses sonar-maven-plugin
                 sh "mvn -B clean verify sonar:sonar -Dsonar.login=${SONAR_TOKEN}"
               } else if (env.BUILD_TOOL == 'node') {
-                // Node: try to use installed sonar-scanner or fallback to docker scanner
-                if (sh(script: 'which sonar-scanner || true', returnStdout: true).trim()) {
-                  sh "sonar-scanner -Dsonar.login=${SONAR_TOKEN} -Dsonar.projectKey=${env.JOB_NAME}-${env.BUILD_NUMBER}"
-                } else {
-                  // Run sonar-scanner in a temporary Docker container (no install required on agent)
-                  def sonarHostUrl = env.SONAR_HOST_URL ?: 'http://host.docker.internal:9000'
-                  sh '''
-docker run --rm --add-host=host.docker.internal:host-gateway \
-  -v "${WORKSPACE}":/usr/src \
-  -w /usr/src \
-  -e SONAR_TOKEN=${SONAR_TOKEN} \
-  sonarsource/sonar-scanner-cli \
-  -Dsonar.host.url=http://host.docker.internal:9000 \
-  -Dsonar.projectKey=sonarqube-pipeline-${BUILD_NUMBER} \
-  -Dsonar.sources=.
-'''
-                }
+                // --- THIS IS THE CORRECTED PART ---
+                // We now call sonar-scanner directly, assuming it's installed on the agent.
+                // This allows withSonarQubeEnv to correctly create the context for waitForQualityGate.
+                echo "Running sonar-scanner directly on the agent..."
+                sh """
+                  sonar-scanner \
+                    -Dsonar.host.url=${env.SONAR_HOST_URL} \
+                    -Dsonar.login=${SONAR_TOKEN} \
+                    -Dsonar.projectKey=sonarqube-pipeline-${BUILD_NUMBER} \
+                    -Dsonar.sources=.
+                """
               } else {
                 echo "Skipping Sonar - no build files detected."
               }
@@ -109,8 +98,7 @@ docker run --rm --add-host=host.docker.internal:host-gateway \
           }
         }
 
-        // This second block now runs immediately after, within the same stage.
-        // It automatically picks up the context from the analysis above.
+        // This will now work correctly because the scanner ran in the same context.
         timeout(time: 2, unit: 'MINUTES') {
           waitForQualityGate abortPipeline: true
         }
@@ -140,8 +128,6 @@ docker run --rm --add-host=host.docker.internal:host-gateway \
     stage('Optional: Notify/Deploy') {
       steps {
         echo "Add your deployment or notification steps here (kubectl/ssh/helm/slack)."
-        // Example placeholder:
-        // sh 'ssh deploy@server "docker pull ${env.IMAGE_TAG} && docker run -d --rm --name app -p 80:3000 ${env.IMAGE_TAG}"'
       }
     }
 
@@ -149,7 +135,6 @@ docker run --rm --add-host=host.docker.internal:host-gateway \
       when { expression { env.PUSHGATEWAY_URL?.trim() } }
       steps {
         script {
-          // This stage is optional and will run only when PUSHGATEWAY_URL is provided in environment
           def metrics = "build_status{job=\"${env.JOB_NAME}\",build=\"${env.BUILD_NUMBER}\"} 1\n"
           writeFile file: 'build_metrics.prom', text: metrics
           sh "curl --data-binary @build_metrics.prom ${env.PUSHGATEWAY_URL}/metrics/job/${env.JOB_NAME}/build/${env.BUILD_NUMBER}"
@@ -159,18 +144,8 @@ docker run --rm --add-host=host.docker.internal:host-gateway \
   }
 
   post {
-    success {
-      echo "Build succeeded: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-    }
-    unstable {
-      echo "Build unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-    }
-    failure {
-      echo "Build failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-    }
     always {
-      // save image info and pipeline logs
-      archiveArtifacts artifacts: '**/target/*.jar, **/*.log', allowEmptyArchive: true
+      echo "Build finished. Cleaning up workspace."
       cleanWs()
     }
   }
