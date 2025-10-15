@@ -67,30 +67,33 @@ pipeline {
       }
     }
 
-    stage('SonarQube Analysis & Quality Gate') {
+     stage('SonarQube Analysis & Quality Gate') {
       when { 
         expression { 
           env.SONAR_CRED_ID != null && env.SONAR_CRED_ID != '' 
         } 
       }
+      tools {
+        // The name must exactly match the one from Global Tool Configuration
+        sonarqube 'SonarScanner-5.0'
+      }
       steps {
         withCredentials([string(credentialsId: "${env.SONAR_CRED_ID}", variable: 'SONAR_TOKEN')]) {
+          // The 'tool' directive makes the scanner available in the PATH for this stage
           withSonarQubeEnv("${env.SONAR_SERVER}") {
             script {
               if (env.BUILD_TOOL == 'maven') {
                 sh "mvn -B clean verify sonar:sonar -Dsonar.login=${SONAR_TOKEN}"
               } else if (env.BUILD_TOOL == 'node') {
-                // --- THIS IS THE CORRECTED PART ---
-                // We now call sonar-scanner directly, assuming it's installed on the agent.
-                // This allows withSonarQubeEnv to correctly create the context for waitForQualityGate.
-                echo "Running sonar-scanner directly on the agent..."
-                sh """
+                // Jenkins will now find 'sonar-scanner' because of the 'tools' block above
+                // Using single quotes and '$VAR' also resolves the security warning
+                sh '''
                   sonar-scanner \
-                    -Dsonar.host.url=${env.SONAR_HOST_URL} \
-                    -Dsonar.login=${SONAR_TOKEN} \
+                    -Dsonar.host.url=${SONAR_HOST_URL} \
+                    -Dsonar.login=$SONAR_TOKEN \
                     -Dsonar.projectKey=sonarqube-pipeline-${BUILD_NUMBER} \
                     -Dsonar.sources=.
-                """
+                '''
               } else {
                 echo "Skipping Sonar - no build files detected."
               }
@@ -98,7 +101,6 @@ pipeline {
           }
         }
 
-        // This will now work correctly because the scanner ran in the same context.
         timeout(time: 2, unit: 'MINUTES') {
           waitForQualityGate abortPipeline: true
         }
