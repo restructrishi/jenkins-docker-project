@@ -75,8 +75,8 @@ pipeline {
       }
       tools {
         // --- THIS IS THE FIX ---
-        // Changed from 'sonarqube' to 'sonar' to match your plugin's tool type
-        sonar 'SonarScanner-5.0'
+        // Using the full class name for the tool type as required by your plugin version
+        'hudson.plugins.sonar.SonarRunnerInstallation' 'SonarScanner-5.0'
       }
       steps {
         withCredentials([string(credentialsId: "${env.SONAR_CRED_ID}", variable: 'SONAR_TOKEN')]) {
