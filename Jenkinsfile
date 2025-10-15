@@ -91,15 +91,17 @@ pipeline {
                   // Run sonar-scanner in a temporary Docker container (no install required on agent)
                   // mounts workspace into /usr/src and runs scanner from container
                   def sonarHostUrl = env.SONAR_HOST_URL ?: 'http://host.docker.internal:9000'
-                  sh """docker run --rm \
-                    --add-host=host.docker.internal:host-gateway \
-                    -v '${env.WORKSPACE}':/usr/src \
-                    -w /usr/src \
-                    -e SONAR_TOKEN='${SONAR_TOKEN}' \
-                    sonarsource/sonar-scanner-cli \
-                    -Dsonar.host.url=${sonarHostUrl} \
-                    -Dsonar.projectKey=${env.JOB_NAME}-${env.BUILD_NUMBER} \
-                    -Dsonar.sources=. 
+                  sh '''
+                  docker run --rm --add-host=host.docker.internal:host-gateway \
+                  -v "${WORKSPACE}":/usr/src \
+                  -w /usr/src \
+                  -e SONAR_TOKEN=${SONAR_TOKEN} \
+                   sonarsource/sonar-scanner-cli \
+                  -Dsonar.host.url=http://host.docker.internal:9000 \
+                  -Dsonar.projectKey=sonarqube-pipeline-${BUILD_NUMBER} \
+                  -Dsonar.sources=.
+'''
+Dsonar.sources=. 
                   """
                 }
               } else {
