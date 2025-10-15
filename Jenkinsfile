@@ -100,7 +100,7 @@ pipeline {
                   -Dsonar.host.url=http://host.docker.internal:9000 \
                   -Dsonar.projectKey=sonarqube-pipeline-${BUILD_NUMBER} \
                   -Dsonar.sources=.
-'''
+                  '''
 Dsonar.sources=. 
                   """
                 }
