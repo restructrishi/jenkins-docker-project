@@ -67,6 +67,23 @@ pipeline {
       }
     }
 
+    // --- ADDED THIS TEMPORARY STAGE FOR DEBUGGING ---
+    stage('Debug Agent PATH') {
+      tools {
+        'hudson.plugins.sonar.SonarRunnerInstallation' 'SonarScanner-5.0'
+      }
+      steps {
+        echo "--- Checking Agent Environment ---"
+        sh 'echo "Running on node: $NODE_NAME"'
+        sh 'echo "--- Current PATH ---"'
+        sh 'echo $PATH'
+        sh 'echo "--- Checking for sonar-scanner ---"'
+        sh 'which sonar-scanner || echo "sonar-scanner command not found in PATH"'
+        sh 'echo "--- Verifying installation directory ---"'
+        sh 'ls -l /opt/sonar-scanner/bin/sonar-scanner || echo "/opt/sonar-scanner/bin/sonar-scanner does not exist on this agent"'
+      }
+    }
+
     stage('SonarQube Analysis & Quality Gate') {
       when { 
         expression { 
@@ -74,8 +91,6 @@ pipeline {
         } 
       }
       tools {
-        // --- THIS IS THE FIX ---
-        // Using the full class name for the tool type as required by your plugin version
         'hudson.plugins.sonar.SonarRunnerInstallation' 'SonarScanner-5.0'
       }
       steps {
