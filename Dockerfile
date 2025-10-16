@@ -1,26 +1,34 @@
-# Use an official Node.js runtime as the base image
-FROM node:18-alpine
-
-# Set the working directory inside the container
+# ---- Base Stage ----
+# Use an official Node.js runtime as a parent image
+FROM node:18-alpine AS base
 WORKDIR /app
 
-# Copy package.json and package-lock.json to the working directory
+# ---- Dependencies Stage ----
+# Install dependencies in a separate layer to leverage Docker's cache
+FROM base AS dependencies
 COPY package*.json ./
+RUN npm ci
 
-# Install the application dependencies
-RUN npm install
+# ---- Build Stage ----
+# This stage is for projects that need a build step (e.g., TypeScript, React).
+# Your project doesn't seem to need it, but it's good practice to keep it.
+FROM dependencies AS build
+COPY . .
+# If you had a build script, you would run it here:
+# RUN npm run build
 
-# Copy the rest of the application code
+# ---- Production Stage ----
+# Create a final, smaller image for production
+FROM base AS production
+ENV NODE_ENV=production
+# Copy only the necessary production dependencies
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=dependencies /app/package*.json ./
+# Copy your application code
 COPY . .
 
-# Expose port 3000 to the outside world
+# Your app binds to port 3000 (or whatever your app.js uses)
 EXPOSE 3000
 
-# Command to run the application
-CMD ["node", "app.js"]
-
-
-FROM openjdk:17-jdk-slim
-WORKDIR /app
-COPY target/my-java-app-1.0.0.jar app.jar
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Command to run your app (CORRECTED LINE)
+CMD [ "node", "app.js" ]
