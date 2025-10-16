@@ -73,11 +73,6 @@ pipeline {
           env.SONAR_CRED_ID != null && env.SONAR_CRED_ID != '' 
         } 
       }
-      tools {
-        // --- THIS IS THE FIX ---
-        // Using the full class name for the tool type as required by your plugin version
-        'hudson.plugins.sonar.SonarRunnerInstallation' 'SonarScanner-5.0'
-      }
       steps {
         withCredentials([string(credentialsId: "${env.SONAR_CRED_ID}", variable: 'SONAR_TOKEN')]) {
           withSonarQubeEnv("${env.SONAR_SERVER}") {
@@ -85,8 +80,9 @@ pipeline {
               if (env.BUILD_TOOL == 'maven') {
                 sh "mvn -B clean verify sonar:sonar -Dsonar.login=${SONAR_TOKEN}"
               } else if (env.BUILD_TOOL == 'node') {
+                // Using full path to sonar-scanner since it's installed at /opt/sonar-scanner
                 sh '''
-                  sonar-scanner \
+                  /opt/sonar-scanner/bin/sonar-scanner \
                     -Dsonar.host.url=${SONAR_HOST_URL} \
                     -Dsonar.login=$SONAR_TOKEN \
                     -Dsonar.projectKey=sonarqube-pipeline-${BUILD_NUMBER} \
