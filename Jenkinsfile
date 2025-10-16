@@ -82,11 +82,15 @@ pipeline {
               } else if (env.BUILD_TOOL == 'node') {
                 // Using full path to sonar-scanner since it's installed at /opt/sonar-scanner
                 sh '''
+                  # Find node path dynamically
+                  NODE_PATH=$(which node || echo "/snap/bin/node")
+                  
                   /opt/sonar-scanner/bin/sonar-scanner \
                     -Dsonar.host.url=${SONAR_HOST_URL} \
                     -Dsonar.login=$SONAR_TOKEN \
                     -Dsonar.projectKey=sonarqube-pipeline-${BUILD_NUMBER} \
-                    -Dsonar.sources=.
+                    -Dsonar.sources=. \
+                    -Dsonar.nodejs.executable=$NODE_PATH
                 '''
               } else {
                 echo "Skipping Sonar - no build files detected."
@@ -95,8 +99,16 @@ pipeline {
           }
         }
 
-        timeout(time: 2, unit: 'MINUTES') {
-          waitForQualityGate abortPipeline: true
+        // Quality Gate check with proper authentication
+        script {
+          withCredentials([string(credentialsId: "${env.SONAR_CRED_ID}", variable: 'SONAR_TOKEN')]) {
+            timeout(time: 2, unit: 'MINUTES') {
+              def qg = waitForQualityGate()
+              if (qg.status != 'OK') {
+                error "Pipeline aborted due to quality gate failure: ${qg.status}"
+              }
+            }
+          }
         }
       }
     }
