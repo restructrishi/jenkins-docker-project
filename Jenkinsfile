@@ -69,10 +69,10 @@ pipeline {
     }
 
     stage('SonarQube Analysis & Quality Gate') {
-      when { 
-        expression { 
-          env.SONAR_CRED_ID != null && env.SONAR_CRED_ID != '' 
-        } 
+      when {
+        expression {
+          env.SONAR_CRED_ID != null && env.SONAR_CRED_ID != ''
+        }
       }
       steps {
         withCredentials([string(credentialsId: "${env.SONAR_CRED_ID}", variable: 'SONAR_TOKEN')]) {
@@ -82,7 +82,7 @@ pipeline {
                 sh "mvn -B clean verify sonar:sonar -Dsonar.login=${SONAR_TOKEN}"
               } else if (env.BUILD_TOOL == 'node') {
                 sh '''
-                  # Find node path dynamically
+                  # Node ka path dynamically find kiya ja raha hai
                   NODE_PATH=$(which node || echo "/snap/bin/node")
                   
                   /opt/sonar-scanner/bin/sonar-scanner \
@@ -91,22 +91,22 @@ pipeline {
                     -Dsonar.projectKey=sonarqube-pipeline-${BUILD_NUMBER} \
                     -Dsonar.sources=. \
                     -Dsonar.nodejs.executable=$NODE_PATH \
-                    -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info // NEW: This line tells Sonar where to find the coverage report
+                    -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info # SAHI COMMENT: Yeh Sonar ko coverage report ka path batata hai
                 '''
               } else {
-                echo "Skipping Sonar - no build files detected."
+                echo "Sonar skip kiya gaya."
               }
             }
           }
         }
 
-        // Quality Gate check with proper authentication
+        // Quality Gate check
         script {
           withCredentials([string(credentialsId: "${env.SONAR_CRED_ID}", variable: 'SONAR_TOKEN')]) {
             timeout(time: 2, unit: 'MINUTES') {
               def qg = waitForQualityGate()
               if (qg.status != 'OK') {
-                error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                error "Pipeline quality gate fail hone ki wajah se ruka: ${qg.status}"
               }
             }
           }
