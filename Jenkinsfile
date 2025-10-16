@@ -53,16 +53,17 @@ pipeline {
       }
     }
 
-    stage('Install & Test') {
+    // MODIFIED: This stage now generates a coverage report
+    stage('Install & Test with Coverage') {
       when { expression { env.BUILD_TOOL == 'node' } }
       steps {
         sh '''
-          echo "Running npm install in Docker container..."
+          echo "Running npm install and tests with coverage in Docker container..."
           docker run --rm \
             -v "${WORKSPACE}":/app \
             -w /app \
             node:18 \
-            sh -c "node --version && npm --version && (npm ci || npm install) && (npm test || true)"
+            sh -c "npm ci && npm test -- --coverage --watchAll=false"
         '''
       }
     }
@@ -80,7 +81,6 @@ pipeline {
               if (env.BUILD_TOOL == 'maven') {
                 sh "mvn -B clean verify sonar:sonar -Dsonar.login=${SONAR_TOKEN}"
               } else if (env.BUILD_TOOL == 'node') {
-                // Using full path to sonar-scanner since it's installed at /opt/sonar-scanner
                 sh '''
                   # Find node path dynamically
                   NODE_PATH=$(which node || echo "/snap/bin/node")
@@ -90,7 +90,8 @@ pipeline {
                     -Dsonar.login=$SONAR_TOKEN \
                     -Dsonar.projectKey=sonarqube-pipeline-${BUILD_NUMBER} \
                     -Dsonar.sources=. \
-                    -Dsonar.nodejs.executable=$NODE_PATH
+                    -Dsonar.nodejs.executable=$NODE_PATH \
+                    -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info // NEW: This line tells Sonar where to find the coverage report
                 '''
               } else {
                 echo "Skipping Sonar - no build files detected."
